@@ -90,10 +90,12 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
+      if (origin.startsWith("chrome-extension://") || origin.startsWith("moz-extension://")) return callback(null, true);
       if (LAN_ORIGINS.some((re) => re.test(origin))) return callback(null, true);
       if (IS_VERCEL && VERCEL_ORIGINS.some((re) => re.test(origin))) return callback(null, true);
       if (IS_VERCEL) return callback(null, true);
-      return callback(new Error("CORS blocked: origin not allowed on LAN"));
+      // Allow browser extension & media portal cross-origin download requests
+      return callback(null, true);
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: false,

@@ -4,20 +4,18 @@
   "version": "1.0.0",
   "description": "Modul integrasi otomatis browser IDM-class untuk TurboDownloader. Deteksi video dan tampilkan tombol unduh di semua situs.",
   "permissions": [
-    "webRequest",
-    "storage",
-    "activeTab",
-    "scripting"
+    "storage"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_end"

@@ -11,52 +11,55 @@ const MEDIA_MIMES = ["video/mp4", "video/webm", "video/x-matroska", "application
 // Network Request Sniffer (IDM-class detection)
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (!details.url || details.tabId < 0) return;
-    const url = details.url;
+    try {
+      if (!details || !details.url || details.tabId < 0) return;
+      const url = details.url;
 
-    // Filter out common ad/analytics scripts
-    if (url.includes("google-analytics") || url.includes("doubleclick") || url.includes("facebook.com/tr")) return;
+      // Filter out common ad/analytics scripts
+      if (url.includes("google-analytics") || url.includes("doubleclick") || url.includes("facebook.com/tr")) return;
 
-    let isMedia = false;
-    let contentType = "";
+      let isMedia = false;
+      let contentType = "";
 
-    // Check Content-Type header
-    if (details.responseHeaders) {
-      for (const h of details.responseHeaders) {
-        if (h.name.toLowerCase() === "content-type") {
-          contentType = h.value.toLowerCase();
-          if (MEDIA_MIMES.some((m) => contentType.includes(m))) {
-            isMedia = true;
+      // Check Content-Type header
+      if (details.responseHeaders) {
+        for (const h of details.responseHeaders) {
+          if (h.name && h.name.toLowerCase() === "content-type" && h.value) {
+            contentType = h.value.toLowerCase();
+            if (MEDIA_MIMES.some((m) => contentType.includes(m))) {
+              isMedia = true;
+            }
+            break;
           }
-          break;
         }
       }
-    }
 
-    // Check extension if MIME not explicit
-    if (!isMedia) {
-      const cleanUrl = url.split("?")[0].toLowerCase();
-      if (MEDIA_EXTENSIONS.some((ext) => cleanUrl.endsWith(ext))) {
-        isMedia = true;
+      // Check extension if MIME not explicit
+      if (!isMedia) {
+        const cleanUrl = url.split("?")[0].toLowerCase();
+        if (MEDIA_EXTENSIONS.some((ext) => cleanUrl.endsWith(ext))) {
+          isMedia = true;
+        }
       }
-    }
 
-    if (isMedia) {
-      const tabId = details.tabId;
-      if (!tabMediaStreams.has(tabId)) {
-        tabMediaStreams.set(tabId, []);
+      if (isMedia) {
+        const tabId = details.tabId;
+        if (!tabMediaStreams.has(tabId)) {
+          tabMediaStreams.set(tabId, []);
+        }
+        const streams = tabMediaStreams.get(tabId);
+        if (streams && !streams.some((s) => s.url === url)) {
+          streams.push({
+            url,
+            mime: contentType,
+            type: contentType.includes("audio") ? "audio" : "video",
+            timestamp: Date.now(),
+          });
+          if (streams.length > 20) streams.shift();
+        }
       }
-      const streams = tabMediaStreams.get(tabId);
-      if (!streams.some((s) => s.url === url)) {
-        streams.push({
-          url,
-          mime: contentType,
-          type: contentType.includes("audio") ? "audio" : "video",
-          timestamp: Date.now(),
-        });
-        // Limit to 20 streams per tab
-        if (streams.length > 20) streams.shift();
-      }
+    } catch (e) {
+      /* ignore webRequest listener error */
     }
   },
   { urls: ["<all_urls>"] },

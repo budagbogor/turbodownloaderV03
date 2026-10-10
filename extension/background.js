@@ -1,48 +1,36 @@
-// TurboDownloader Integration Module - Background Service Worker
+// TurboDownloader Integration Module - Background Service Worker (Manifest V3)
 const TURBO_SERVER = "http://localhost:3000";
 
 // Storage for detected media streams per tab
 const tabMediaStreams = new Map();
 
-// File extensions and MIME types to sniff
-const MEDIA_EXTENSIONS = [".mp4", ".mkv", ".webm", ".m3u8", ".mpd", ".flv", ".mov", ".m4a", ".mp3", ".aac", ".wav", ".ts"];
-const MEDIA_MIMES = ["video/mp4", "video/webm", "video/x-matroska", "application/x-mpegurl", "application/dash+xml", "audio/mpeg", "audio/mp4"];
+// File extensions to sniff
+const MEDIA_EXTENSIONS = [
+  ".mp4", ".mkv", ".webm", ".m3u8", ".mpd", ".flv",
+  ".mov", ".m4a", ".mp3", ".aac", ".wav", ".ts"
+];
 
-// Network Request Sniffer (IDM-class detection)
-chrome.webRequest.onHeadersReceived.addListener(
+// Manifest V3 Compliant Network Request Sniffer
+chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     try {
       if (!details || !details.url || details.tabId < 0) return;
       const url = details.url;
 
-      // Filter out common ad/analytics scripts
-      if (url.includes("google-analytics") || url.includes("doubleclick") || url.includes("facebook.com/tr")) return;
-
-      let isMedia = false;
-      let contentType = "";
-
-      // Check Content-Type header
-      if (details.responseHeaders) {
-        for (const h of details.responseHeaders) {
-          if (h.name && h.name.toLowerCase() === "content-type" && h.value) {
-            contentType = h.value.toLowerCase();
-            if (MEDIA_MIMES.some((m) => contentType.includes(m))) {
-              isMedia = true;
-            }
-            break;
-          }
-        }
+      // Filter out analytics & trackers
+      if (
+        url.includes("google-analytics") ||
+        url.includes("doubleclick") ||
+        url.includes("facebook.com/tr") ||
+        url.includes("favicon")
+      ) {
+        return;
       }
 
-      // Check extension if MIME not explicit
-      if (!isMedia) {
-        const cleanUrl = url.split("?")[0].toLowerCase();
-        if (MEDIA_EXTENSIONS.some((ext) => cleanUrl.endsWith(ext))) {
-          isMedia = true;
-        }
-      }
+      const cleanUrl = url.split("?")[0].toLowerCase();
+      const isMediaExt = MEDIA_EXTENSIONS.some((ext) => cleanUrl.endsWith(ext));
 
-      if (isMedia) {
+      if (isMediaExt) {
         const tabId = details.tabId;
         if (!tabMediaStreams.has(tabId)) {
           tabMediaStreams.set(tabId, []);
@@ -51,19 +39,18 @@ chrome.webRequest.onHeadersReceived.addListener(
         if (streams && !streams.some((s) => s.url === url)) {
           streams.push({
             url,
-            mime: contentType,
-            type: contentType.includes("audio") ? "audio" : "video",
+            mime: "video/stream",
+            type: "video",
             timestamp: Date.now(),
           });
-          if (streams.length > 20) streams.shift();
+          if (streams.length > 25) streams.shift();
         }
       }
     } catch (e) {
-      /* ignore webRequest listener error */
+      /* ignore */
     }
   },
-  { urls: ["<all_urls>"] },
-  ["responseHeaders"]
+  { urls: ["<all_urls>"] }
 );
 
 // Clean up memory when tab is closed

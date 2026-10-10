@@ -1,0 +1,104 @@
+/* TurboDownloader Integration Module - Floating Widget CSS */
+.turbo-floating-widget {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  pointer-events: auto;
+  opacity: 0.88;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.turbo-floating-widget:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.turbo-btn-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+  outline: none;
+}
+
+.turbo-btn-main:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  border-color: rgba(165, 180, 252, 0.4);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+}
+
+.turbo-btn-main:active {
+  transform: scale(0.97);
+}
+
+.turbo-badge {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.turbo-btn-main.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Toast Notifications */
+#turbo-downloader-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+}
+
+#turbo-downloader-toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+#turbo-downloader-toast.success {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+#turbo-downloader-toast.error {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  backdrop-filter: blur(129px);
+}
+
+.turbo-toast-icon {
+  font-size: 16px;
+}

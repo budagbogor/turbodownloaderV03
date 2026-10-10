@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TurboDownloader Sniffer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 14px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1e293b;
+      margin-bottom: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+    .status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 99px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-online { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-offline { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .stream-item {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .stream-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .stream-url {
+      font-size: 11px;
+      font-family: monospace;
+      color: #cbd5e1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stream-meta {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .btn-download {
+      background: #4f46e5;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .btn-download:hover { background: #4338ca; }
+
+    .empty-state {
+      text-align: center;
+      padding: 24px 12px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #1e293b;
+      text-align: center;
+      font-size: 10px;
+      color: #64748b;
+    }
+    a { color: #818cf8; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <span>🚀</span> TurboDownloader
+    </div>
+    <div id="status" class="status-badge status-offline">
+      <span class="dot"></span> <span id="status-text">Checking...</span>
+    </div>
+  </div>
+
+  <div class="subtitle">Media terdeteksi pada tab ini:</div>
+  <div id="stream-container" class="stream-list">
+    <div class="empty-state">Mencari media streams...</div>
+  </div>
+
+  <div class="footer">
+    <a href="http://localhost:3000" target="_blank">Buka Dashboard Server (localhost:3000)</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

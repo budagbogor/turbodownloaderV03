@@ -14,8 +14,8 @@
     }
     toast.className = `turbo-toast ${isSuccess ? "success" : "error"}`;
     toast.innerHTML = `
-      <div className="turbo-toast-icon">${isSuccess ? "⚡" : "⚠️"}</div>
-      <div className="turbo-toast-text">${message}</div>
+      <div class="turbo-toast-icon">${isSuccess ? "⚡" : "⚠️"}</div>
+      <div class="turbo-toast-text">${message}</div>
     `;
     toast.classList.add("show");
     setTimeout(() => {
@@ -40,14 +40,14 @@
     const btnWrapper = document.createElement("div");
     btnWrapper.className = "turbo-floating-widget";
     btnWrapper.innerHTML = `
-      <button className="turbo-btn-main" title="Download video ini dengan TurboDownloader">
+      <button class="turbo-btn-main" title="Download video ini dengan TurboDownloader">
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="7 10 12 15 17 10"></polyline>
           <line x1="12" y1="15" x2="12" y2="3"></line>
         </svg>
         <span>Download Video</span>
-        <span className="turbo-badge">Turbo</span>
+        <span class="turbo-badge">Turbo</span>
       </button>
     `;
 

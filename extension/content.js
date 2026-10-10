@@ -52,6 +52,7 @@
     `;
 
     const btn = btnWrapper.querySelector(".turbo-btn-main");
+    if (!btn) return;
 
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();

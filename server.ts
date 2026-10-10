@@ -198,48 +198,9 @@ function safeResolve(baseDir: string, ...join: string[]): string {
 // ============================================================
 // WebSocket connection handling
 // ============================================================
-// #region debug-point H2-H5-upgrade-listener
-// NOTE: `new WebSocketServer({ server })` OTOMATIS attach server.on("upgrade")
-//       INTERNALLY. Kita JANGAN PERNAH panggil wss.handleUpgrade() LAGI di
-//       user-space listener — akan throw "handleUpgrade called more than once".
-//       Guard ini HANYA untuk logging/instrumentasi; actual handshake tetap
-//       oleh internal ws listener (tidak kita intervensi socket).
-let __wssInternalUpgradeFired = false;
-server.on("upgrade", (req, socket, head) => {
-  try {
-    debugReport("H2", "server.ts:upgrade-event", "HTTP upgrade event fired", {
-      __dbgEnv: "ws-closed-download-stuck",
-      reqUrl: req.url,
-      reqMethod: req.method,
-      upgradeHeader: String(req.headers["upgrade"] || ""),
-      secWsKey: String(req.headers["sec-websocket-key"] || "").slice(0, 8) + "...",
-      secWsVersion: String(req.headers["sec-websocket-version"] || ""),
-      remoteAddr: String(req.socket?.remoteAddress || ""),
-      wssClientCount: wss.clients.size,
-      internalUpgrade: typeof __wssInternalUpgradeFired === "boolean" ? 1 : 0,
-    });
-    __wssInternalUpgradeFired = true;
-  } catch {
-    // Instrumentasi gagal tidak boleh pengaruhi handshake
-  }
-  // PENTING: JANGAN panggil wss.handleUpgrade() di sini!
-  //         ws library internal yang menangani secara dedup-safe.
-});
-// #endregion
 
 wss.on("connection", (ws, req) => {
-  // #region debug-point H2-H4-connection
-  try {
-    debugReport("H2", "server.ts:wss-on-connection", "Client connected to WebSocket server (post-handshake)", {
-      __dbgEnv: "ws-closed-download-stuck",
-      reqUrl: req?.url,
-      remoteAddr: String(req?.socket?.remoteAddress || ""),
-      totalClients: wss.clients.size,
-      downloadsCount: downloadManager.getAll().length,
-      activeDownloadingCount: downloadManager.getAll().filter((d: any) => d.status === "downloading").length,
-    });
-  } catch { /* debug guard noop */ }
-  // #endregion
+
   try {
     ws.send(JSON.stringify({ type: "INIT", data: downloadManager.getAll() }));
   } catch (e) {
@@ -250,47 +211,13 @@ wss.on("connection", (ws, req) => {
 function broadcast(message: any) {
   const clients = Array.from(wss.clients);
   const openClients = clients.filter(c => c.readyState === WebSocket.OPEN);
-  // #region debug-point H4-broadcast
-  try {
-    if (message?.type === "UPDATE_ALL") {
-      const active = (Array.isArray(message?.data) ? message.data : []).filter((d: any) =>
-        d.status === "downloading" || d.status === "merging"
-      );
-      if (active.length > 0) {
-        const summary = active.map((t: any) => ({
-          id: t.id?.slice(0, 8) + "…",
-          status: t.status,
-          downloaded: t.downloadedSize,
-          total: t.totalSize,
-          speed: t.speed,
-        }));
-        debugReport("H4", "server.ts:broadcast-UPDATE_ALL", "Broadcasting UPDATE_ALL to clients", {
-          __dbgEnv: "ws-closed-download-stuck",
-          clientCount: openClients.length,
-          totalClients: clients.length,
-          messageType: message.type,
-          activeCount: active.length,
-          activeSample: summary.slice(0, 2),
-        });
-      }
-    }
-  } catch { /* debug guard noop */ }
-  // #endregion
+
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       try {
         client.send(JSON.stringify(message));
       } catch (e) {
-        // #region debug-point H4-broadcast-fail
-        try {
-          debugReport("H4", "server.ts:broadcast-send-ERROR", "Failed to WS send", {
-            __dbgEnv: "ws-closed-download-stuck",
-            error: String((e as any)?.message || e),
-            clientReadyState: client.readyState,
-            messageType: message?.type,
-          });
-        } catch { /* noop */ }
-        // #endregion
+
       }
     }
   });
@@ -299,26 +226,7 @@ function broadcast(message: any) {
 setInterval(() => {
   const all = downloadManager.getAll();
   const active = all.filter((d: any) => d.status === "downloading" || d.status === "merging" || d.status === "pending");
-  // #region debug-point A/C:ws-broadcast-summary
-  try {
-    const interesting = all
-      .filter((d: any) => d.status !== "completed" || d.downloadedSize > 0)
-      .slice(0, 3)
-      .map((d: any) => ({
-        id: d.id?.slice(0, 8) + "…",
-        status: d.status,
-        downloaded: d.downloadedSize,
-        total: d.totalSize,
-        progress: d.progress,
-      }));
-    debugReport("A", "server.ts:setInterval:broadcast-summary", "[DEBUG] periodic UPDATE_ALL snapshot", {
-      __dbgEnv: "youtube-audio-stuck",
-      activeCount: active.length,
-      totalCount: all.length,
-      sample: interesting,
-    });
-  } catch {}
-  // #endregion
+
   // NOTE: SELALU BROADCAST setiap detik, BUKAN HANYA jika active > 0.
   //       Sebelumnya filter `if (active.length > 0)` menyebabkan:
   //       ketika task terakhir transition completed → active.length 0 → IF FALSE.
@@ -508,21 +416,11 @@ app.get("/api/downloads/:id/logs", validateParam(IdParamSchema), (req, res) => {
 app.post("/api/downloads", strictCreateLimiter, validateBody(CreateDownloadSchema), async (req, res) => {
   const { url, filename, connections } = req.body as z.infer<typeof CreateDownloadSchema>;
   try {
-    debugReport("D", "server.ts:/api/downloads", "[DEBUG] API received download request", {
-      url, filename, connections,
-      isYoutube: typeof url === "string" && /(?:youtube\.com|youtu\.be)/i.test(url),
-    });
     const task = await downloadManager.addDownload(url, filename, connections);
-    debugReport("E", "server.ts:/api/downloads", "[DEBUG] Download task created", {
-      taskId: task.id, status: task.status, error: task.error, filename: task.filename, totalSize: task.totalSize, downloadedSize: task.downloadedSize,
-    });
     broadcast({ type: "NEW_DOWNLOAD", data: task });
     broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
     res.json(task);
   } catch (error: any) {
-    debugReport("E", "server.ts:/api/downloads", "[DEBUG] API download request failed", {
-      error: error?.message || String(error), url, filename, connections,
-    });
     appendEventLog({ eventType: "api_error", message: error.message });
     console.error("Download error:", error.message);
     res.status(500).json({ error: error.message });
@@ -677,6 +575,129 @@ app.post("/api/downloads/:id/repair", validateParam(IdParamSchema), (req, res) =
     });
   } catch (e: any) {
     res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Video Enhancement & Upscaling (Sharpen, Denoise, Color Boost, 1080p/4K Upscale)
+app.post("/api/downloads/:id/enhance", validateParam(IdParamSchema), (req, res) => {
+  const { id } = req.params;
+  const { preset } = req.body || {};
+  const task = downloadManager.getTask(id);
+  if (!task) return res.status(404).json({ error: "Download task not found" });
+
+  if (task.status === "merging") {
+    return res.status(400).json({ error: "Video is already being enhanced or processed" });
+  }
+
+  try {
+    const baseDir = process.env.DOWNLOAD_DIR
+      ? path.resolve(process.env.DOWNLOAD_DIR)
+      : safeResolve(process.cwd(), "downloads");
+    
+    let filePath = safeResolve(baseDir, task.filename);
+
+    if (!fs.existsSync(filePath)) {
+      // Try with .mp4 or searching directory for matching file
+      if (fs.existsSync(filePath + ".mp4")) {
+        filePath = filePath + ".mp4";
+      } else {
+        const files = fs.readdirSync(baseDir);
+        const match = files.find(f => f.toLowerCase() === task.filename.toLowerCase() || f.toLowerCase().startsWith(task.filename.toLowerCase()));
+        if (match) {
+          filePath = safeResolve(baseDir, match);
+        }
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: `File video tidak ditemukan di disk (${task.filename})` });
+    }
+
+    const ffmpegBin = getFfmpegBinary();
+    if (!ffmpegBin) {
+      return res.status(500).json({ error: "FFmpeg binary is required for video enhancement" });
+    }
+
+    let filterChain = "";
+    let audioFlags = "-c:a copy";
+    let label = "Enhanced";
+
+    switch (preset) {
+      case "sharpen":
+        filterChain = '-vf "unsharp=5:5:0.8:5:5:0.0,hqdn3d=1.2:1.2:4:4"';
+        label = "HD Sharpened & Denoised";
+        break;
+      case "vibrant":
+        filterChain = '-vf "eq=saturation=1.28:contrast=1.12:brightness=0.01"';
+        label = "Vibrant Color Boost";
+        break;
+      case "upscale1080p":
+        filterChain = '-vf "scale=1920:1080:flags=lanczos,unsharp=3:3:0.6"';
+        label = "Upscaled to 1080p Full HD";
+        break;
+      case "upscale4k":
+        filterChain = '-vf "scale=3840:2160:flags=lanczos,unsharp=3:3:0.6"';
+        label = "Upscaled to 4K Ultra HD";
+        break;
+      case "full":
+      default:
+        filterChain = '-vf "scale=1920:1080:flags=lanczos,unsharp=5:5:0.8:5:5:0.0,eq=saturation=1.22:contrast=1.08,hqdn3d=1.2:1.2:4:4"';
+        audioFlags = '-c:a aac -b:a 192k -af "loudnorm=I=-16:TP=-1.5:LRA=11"';
+        label = "Full Ultra Quality Enhancement";
+        break;
+    }
+
+    const tempOut = filePath + `.enhanced-${Date.now()}.mp4`;
+    const cmd = `"${ffmpegBin}" -y -i "${filePath}" ${filterChain} -c:v libx264 -preset medium -crf 18 ${audioFlags} -movflags +faststart "${tempOut}"`;
+
+    // Immediately mark as processing and respond to client to avoid HTTP timeout
+    task.status = "merging";
+    broadcast({ type: "UPDATE_DOWNLOAD", data: task.toJSON() });
+    broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+
+    res.json({
+      success: true,
+      message: `Proses ${label} dimulai di background! Mohon tunggu beberapa saat.`,
+    });
+
+    // Execute heavy FFmpeg rendering asynchronously
+    exec(cmd, { timeout: 600000 }, (error) => {
+      if (error) {
+        console.error("Video enhance background error:", error);
+        task.status = "completed";
+        task.error = "Enhancement error: " + error.message;
+        broadcast({ type: "UPDATE_DOWNLOAD", data: task.toJSON() });
+        broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+        return;
+      }
+
+      if (fs.existsSync(tempOut) && fs.statSync(tempOut).size > 1000) {
+        try {
+          fs.unlinkSync(filePath);
+          fs.renameSync(tempOut, filePath);
+          const newSize = fs.statSync(filePath).size;
+          task.downloadedSize = newSize;
+          task.totalSize = newSize;
+          task.status = "completed";
+          task.error = undefined;
+          broadcast({ type: "UPDATE_DOWNLOAD", data: task.toJSON() });
+          broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+        } catch (e: any) {
+          console.error("File replacement error post enhance:", e);
+          task.status = "completed";
+          broadcast({ type: "UPDATE_DOWNLOAD", data: task.toJSON() });
+          broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+        }
+      } else {
+        task.status = "completed";
+        broadcast({ type: "UPDATE_DOWNLOAD", data: task.toJSON() });
+        broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+      }
+    });
+  } catch (e: any) {
+    if (!res.headersSent) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
   }
 });
 

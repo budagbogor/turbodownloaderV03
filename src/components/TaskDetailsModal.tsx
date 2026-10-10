@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { DownloadTask } from "../types";
 import { formatBytes, formatTime } from "../lib/utils";
 import { SegmentVisualizer } from "./SegmentVisualizer";
@@ -12,6 +12,11 @@ import {
   Layers,
   Download,
   Play,
+  Sparkles,
+  Wand2,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
 interface TaskDetailsModalProps {
@@ -21,7 +26,43 @@ interface TaskDetailsModalProps {
 }
 
 export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({ task, onClose, onPlay }) => {
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [enhancePreset, setEnhancePreset] = useState<string | null>(null);
+  const [enhanceMsg, setEnhanceMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   if (!task) return null;
+
+  const handleEnhance = async (preset: string) => {
+    setIsEnhancing(true);
+    setEnhancePreset(preset);
+    setEnhanceMsg(null);
+    try {
+      const res = await fetch(`/api/downloads/${task.id}/enhance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset }),
+      });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { error: text || "Gagal membaca balasan server" };
+      }
+
+      if (res.ok && data.success) {
+        setEnhanceMsg({ type: "success", text: data.message || "Proses peningkatan kualitas video dimulai di background!" });
+      } else {
+        const detailErr = data.error || (data.issues ? JSON.stringify(data.issues) : "") || text || `HTTP Error ${res.status}`;
+        setEnhanceMsg({ type: "error", text: detailErr });
+      }
+    } catch (e: any) {
+      setEnhanceMsg({ type: "error", text: e.message || "Terjadi kesalahan jaringan" });
+    } finally {
+      setIsEnhancing(false);
+      setEnhancePreset(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
@@ -116,6 +157,108 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({ task, onClos
             </div>
           </div>
 
+          {/* AI / FFmpeg Video Quality Enhancement Panel */}
+          {task.status === "completed" && task.category === "video" && (
+            <div className="bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-slate-50 border border-indigo-100 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-indigo-900 font-semibold text-xs uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" />
+                  Video Quality Enhancement & Upscaling
+                </div>
+                <span className="text-[11px] text-indigo-600/80 font-medium bg-indigo-100/60 px-2 py-0.5 rounded-full">
+                  FFmpeg Engine
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Tingkatkan ketajaman gambar, sesuaikan warna, hilangkan noise, atau tingkatkan resolusi video ini menjadi 1080p/4K.
+              </p>
+
+              {enhanceMsg && (
+                <div
+                  className={`p-3 rounded-lg text-xs flex items-center gap-2 ${
+                    enhanceMsg.type === "success"
+                      ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                      : "bg-rose-50 text-rose-800 border border-rose-200"
+                  }`}
+                >
+                  {enhanceMsg.type === "success" ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  )}
+                  <span>{enhanceMsg.text}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                <button
+                  disabled={isEnhancing}
+                  onClick={() => handleEnhance("sharpen")}
+                  className="px-3 py-2 bg-white hover:bg-indigo-50/60 border border-indigo-200/80 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-800 transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isEnhancing && enhancePreset === "sharpen" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5 text-indigo-600" />
+                  )}
+                  <span>HD Sharpen</span>
+                </button>
+
+                <button
+                  disabled={isEnhancing}
+                  onClick={() => handleEnhance("vibrant")}
+                  className="px-3 py-2 bg-white hover:bg-indigo-50/60 border border-indigo-200/80 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-800 transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isEnhancing && enhancePreset === "vibrant" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  )}
+                  <span>Vibrant Colors</span>
+                </button>
+
+                <button
+                  disabled={isEnhancing}
+                  onClick={() => handleEnhance("upscale1080p")}
+                  className="px-3 py-2 bg-white hover:bg-indigo-50/60 border border-indigo-200/80 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-800 transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isEnhancing && enhancePreset === "upscale1080p" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                  ) : (
+                    <span className="font-black text-[10px] bg-blue-100 text-blue-700 px-1 rounded">1080p</span>
+                  )}
+                  <span>Upscale 1080p</span>
+                </button>
+
+                <button
+                  disabled={isEnhancing}
+                  onClick={() => handleEnhance("upscale4k")}
+                  className="px-3 py-2 bg-white hover:bg-indigo-50/60 border border-indigo-200/80 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-800 transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isEnhancing && enhancePreset === "upscale4k" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                  ) : (
+                    <span className="font-black text-[10px] bg-amber-100 text-amber-700 px-1 rounded">4K</span>
+                  )}
+                  <span>Upscale 4K</span>
+                </button>
+
+                <button
+                  disabled={isEnhancing}
+                  onClick={() => handleEnhance("full")}
+                  className="col-span-2 sm:col-span-2 px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isEnhancing && enhancePreset === "full" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  )}
+                  <span>Full Ultra Enhancement (Upscale + Sharpen + Audio)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="pt-2">
             <SegmentVisualizer segments={task.segments} numConnections={task.numConnections} />
           </div>
@@ -158,3 +301,4 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({ task, onClos
     </div>
   );
 };
+

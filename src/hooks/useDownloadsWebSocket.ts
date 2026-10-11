@@ -13,6 +13,16 @@ const BASE_BACKOFF_MS = 600;
 const POLL_INTERVAL_MS = 1200;
 
 function getWsUrl(): string {
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "tauri.localhost" ||
+      Boolean((window as any).__TAURI_INTERNALS__) ||
+      Boolean((window as any).__TAURI__) ||
+      window.location.protocol === "tauri:" ||
+      window.location.protocol === "asset:")
+  ) {
+    return "ws://127.0.0.1:3000";
+  }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
   return `${proto}//${host}`;

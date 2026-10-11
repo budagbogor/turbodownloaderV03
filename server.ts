@@ -23,6 +23,7 @@ import {
   exportAllJson,
   vacuumAndWipeAll,
   appendEventLog,
+  getActiveDownloadDir,
 } from "./src/server/database.js";
 import {
   analyzeUniversalMedia,
@@ -51,7 +52,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         fontSrc: ["'self'"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
-        mediaSrc: ["'self'", "data:", "blob:", "https:"],
+        mediaSrc: ["'self'", "data:", "blob:", "https:", "http://127.0.0.1:*", "http://localhost:*"],
         connectSrc: [
           "'self'",
           "ws://localhost:*",
@@ -115,6 +116,8 @@ const CreateDownloadSchema = z.object({
   url: z.string().trim().min(5, "URL required"),
   filename: z.string().trim().max(200).optional(),
   connections: z.coerce.number().int().min(1).max(32).optional(),
+  autoCompress: z.boolean().optional(),
+  openFolder: z.boolean().optional(),
 });
 
 const IdParamSchema = z.object({
@@ -197,6 +200,53 @@ function safeResolve(baseDir: string, ...join: string[]): string {
   return resolved;
 }
 
+function getDownloadsDir(): string {
+  if (IS_VERCEL) {
+    return "/tmp/turbodownloader-downloads";
+  }
+  return getActiveDownloadDir();
+}
+
+function openDownloadsFolder(filename?: string) {
+  try {
+    const baseDir = path.resolve(getDownloadsDir());
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+
+    if (process.platform === "win32") {
+      if (filename) {
+        const targetPath = path.resolve(baseDir, filename);
+        if (fs.existsSync(targetPath)) {
+          console.log(`[TurboDownloader] Membuka File Explorer & menyeleksi: ${targetPath}`);
+          const psSelect = `powershell -NoProfile -Command "Start-Process explorer.exe -ArgumentList '/select,\\\"${targetPath.replace(/"/g, '`"')}\\\"' -ErrorAction SilentlyContinue"`;
+          exec(psSelect, (err) => {
+            if (err) {
+              const p = spawn("explorer.exe", [`/select,${targetPath}`], { detached: true, stdio: "ignore" });
+              p.unref();
+            }
+          });
+          return;
+        }
+      }
+      console.log(`[TurboDownloader] Membuka folder downloads di File Explorer: ${baseDir}`);
+      const psOpen = `powershell -NoProfile -Command "Start-Process explorer.exe -ArgumentList '\\\"${baseDir.replace(/"/g, '`"')}\\\"' -ErrorAction SilentlyContinue"`;
+      exec(psOpen, (err) => {
+        if (err) {
+          const p = spawn("explorer.exe", [baseDir], { detached: true, stdio: "ignore" });
+          p.unref();
+        }
+      });
+    } else if (process.platform === "darwin") {
+      exec(`open "${baseDir}"`);
+    } else {
+      exec(`xdg-open "${baseDir}"`);
+    }
+  } catch (err) {
+    console.warn("Failed to open downloads folder in explorer:", err);
+  }
+}
+
 // ============================================================
 // WebSocket connection handling
 // ============================================================
@@ -225,9 +275,31 @@ function broadcast(message: any) {
   });
 }
 
+const completedOpenedIds = new Set<string>();
+
 setInterval(() => {
   const all = downloadManager.getAll();
   const active = all.filter((d: any) => d.status === "downloading" || d.status === "merging" || d.status === "pending");
+
+  // Otomatis buka folder dan seleksi file ketika unduhan selesai
+  const newlyCompleted = all.filter((d: any) => d.status === "completed" && !completedOpenedIds.has(d.id));
+  for (const t of newlyCompleted) {
+    completedOpenedIds.add(t.id);
+    const taskObj = downloadManager.getTask(t.id);
+    if (taskObj) {
+      openDownloadsFolder(taskObj.filename);
+    }
+  }
+
+  // Trigger auto-compression
+  const newlyCompletedAuto = all.filter((d: any) => d.status === "completed" && downloadManager.getTask(d.id)?.autoCompress);
+  for (const t of newlyCompletedAuto) {
+    const taskObj = downloadManager.getTask(t.id);
+    if (taskObj) {
+      taskObj.autoCompress = false;
+      axios.post(`http://localhost:${PORT}/api/downloads/${t.id}/enhance`, { preset: "compress" }).catch(() => {});
+    }
+  }
 
   // NOTE: SELALU BROADCAST setiap detik, BUKAN HANYA jika active > 0.
   //       Sebelumnya filter `if (active.length > 0)` menyebabkan:
@@ -308,6 +380,25 @@ app.post("/api/settings", validateBody(SettingKeySchema), (req, res) => {
     res.json({ success: true, settings: downloadManager.getSettings() });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Endpoint untuk membuka dialog pemilihan folder Windows Explorer asli
+app.post("/api/settings/choose-folder", (req, res) => {
+  if (process.platform === "win32") {
+    const curDir = getDownloadsDir().replace(/\\/g, "\\\\");
+    const psCmd = `powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Pilih Folder Penyimpanan TurboDownloader'; if (Test-Path '${curDir}') { $f.SelectedPath = '${curDir}' }; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"`;
+    exec(psCmd, (err, stdout) => {
+      const selected = (stdout || "").trim();
+      if (selected && fs.existsSync(selected)) {
+        downloadManager.updateSetting("defaultDownloadDir", selected);
+        broadcast({ type: "SETTINGS_UPDATED", data: downloadManager.getSettings() });
+        return res.json({ success: true, folder: selected });
+      }
+      return res.json({ success: false, cancelled: true });
+    });
+  } else {
+    res.json({ success: false, error: "Native dialog only supported on Windows" });
   }
 });
 
@@ -416,16 +507,74 @@ app.get("/api/downloads/:id/logs", validateParam(IdParamSchema), (req, res) => {
 });
 
 app.post("/api/downloads", strictCreateLimiter, validateBody(CreateDownloadSchema), async (req, res) => {
-  const { url, filename, connections } = req.body as z.infer<typeof CreateDownloadSchema>;
+  const { url, filename, connections, autoCompress, openFolder } = req.body as z.infer<typeof CreateDownloadSchema>;
   try {
-    const task = await downloadManager.addDownload(url, filename, connections);
+    const task = await downloadManager.addDownload(url, filename, connections, autoCompress);
     broadcast({ type: "NEW_DOWNLOAD", data: task });
     broadcast({ type: "UPDATE_ALL", data: downloadManager.getAll() });
+
+    // Otomatis buka folder download di File Explorer ketika download dimulai (kecuali di-disable)
+    if (openFolder !== false) {
+      openDownloadsFolder(task.filename);
+    }
+
     res.json(task);
   } catch (error: any) {
     appendEventLog({ eventType: "api_error", message: error.message });
     console.error("Download error:", error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint eksplisit untuk membuka folder downloads di File Explorer
+app.post("/api/downloads/open-folder", (req, res) => {
+  try {
+    const { filename } = req.body || {};
+    openDownloadsFolder(filename);
+    res.json({ success: true, folder: getDownloadsDir() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/downloads/:id/open-folder", (req, res) => {
+  try {
+    const { id } = req.params;
+    let task = downloadManager.getTask(id) as any;
+    if (!task) {
+      const all = downloadManager.getAll();
+      task = all.find((t) => t.id === id);
+    }
+    if (!task) {
+      const dbTasks = getAllTasks(false);
+      const row = dbTasks.find((r) => r.id === id);
+      if (row) task = { filename: row.filename };
+    }
+    openDownloadsFolder(task?.filename);
+    res.json({ success: true, folder: getDownloadsDir() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Endpoint untuk membantu pengguna memasang ekstensi Chrome dalam 1-klik
+app.post("/api/extension/open-install", (req, res) => {
+  try {
+    const extDir = safeResolve(process.cwd(), "extension");
+    if (process.platform === "win32") {
+      // 1. Buka folder ekstensi di File Explorer
+      exec(`powershell -NoProfile -Command "Invoke-Item '${extDir.replace(/'/g, "''")}'"`);
+      // 2. Buka tab chrome://extensions di Chrome
+      exec(`powershell -NoProfile -Command "Start-Process chrome.exe 'chrome://extensions' -ErrorAction SilentlyContinue"`);
+    } else if (process.platform === "darwin") {
+      exec(`open "${extDir}"`);
+      exec(`open -a "Google Chrome" "chrome://extensions"`);
+    } else {
+      exec(`xdg-open "${extDir}"`);
+    }
+    res.json({ success: true, path: extDir });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -472,8 +621,8 @@ app.get("/api/downloads/:id/file", validateParam(IdParamSchema), (req, res) => {
   const task = downloadManager.getTask(id);
   if (!task) return res.status(404).json({ error: "Download task not found" });
   try {
-    const baseDir = safeResolve(process.cwd(), "downloads");
-    const filePath = safeResolve(baseDir, task.filename);
+    const baseDir = getDownloadsDir();
+    const filePath = path.join(baseDir, task.filename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk or still being assembled" });
     res.download(filePath, task.filename);
   } catch (e: any) {
@@ -482,15 +631,63 @@ app.get("/api/downloads/:id/file", validateParam(IdParamSchema), (req, res) => {
 });
 
 // ============================================================
+// Play Native Media in Default Windows Player (WMP, VLC, Film & TV)
+// ============================================================
+app.post("/api/downloads/:id/play-native", validateParam(IdParamSchema), (req, res) => {
+  const { id } = req.params;
+  let task = downloadManager.getTask(id) as any;
+  if (!task) {
+    const all = downloadManager.getAll();
+    task = all.find((t) => t.id === id);
+  }
+  if (!task) {
+    const dbTasks = getAllTasks(false);
+    const row = dbTasks.find((r) => r.id === id);
+    if (row) task = { filename: row.filename };
+  }
+  if (!task) return res.status(404).json({ error: "Download task not found" });
+
+  try {
+    const baseDir = getDownloadsDir();
+    const filePath = path.join(baseDir, task.filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
+
+    if (process.platform === "win32") {
+      const psCmd = `powershell -NoProfile -Command "Start-Process '${filePath.replace(/'/g, "''")}'"`;
+      exec(psCmd, (err) => {
+        if (err) console.error("Failed to start media player:", err);
+      });
+    } else if (process.platform === "darwin") {
+      exec(`open "${filePath}"`);
+    } else {
+      exec(`xdg-open "${filePath}"`);
+    }
+    res.json({ success: true, file: filePath });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
 // Stream WITH Range 206 Partial Content (seekable HTML5 player)
 // ============================================================
 app.get("/api/downloads/:id/stream", validateParam(IdParamSchema), (req, res) => {
   const { id } = req.params;
-  const task = downloadManager.getTask(id);
+  let task = downloadManager.getTask(id) as any;
+  if (!task) {
+    const all = downloadManager.getAll();
+    task = all.find((t) => t.id === id);
+  }
+  if (!task) {
+    const dbTasks = getAllTasks(false);
+    const row = dbTasks.find((r) => r.id === id);
+    if (row) task = { filename: row.filename };
+  }
   if (!task) return res.status(404).json({ error: "Download task not found" });
+
   try {
-    const baseDir = safeResolve(process.cwd(), "downloads");
-    const filePath = safeResolve(baseDir, task.filename);
+    const baseDir = getDownloadsDir();
+    const filePath = path.join(baseDir, task.filename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
     const stat = fs.statSync(filePath);
     const fileSize = stat.size;
@@ -504,6 +701,12 @@ app.get("/api/downloads/:id/stream", validateParam(IdParamSchema), (req, res) =>
     else if (ext === ".m4a") contentType = "audio/mp4";
     else if (ext === ".wav") contentType = "audio/wav";
 
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+      "Access-Control-Allow-Headers": "Range, Content-Type, Accept-Ranges",
+    };
+
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       let start = parseInt(parts[0], 10);
@@ -513,6 +716,7 @@ app.get("/api/downloads/:id/stream", validateParam(IdParamSchema), (req, res) =>
       if (start > end) return res.status(416).set("Content-Range", `bytes */${fileSize}`).send("Requested Range Not Satisfiable");
       const chunksize = end - start + 1;
       res.writeHead(206, {
+        ...corsHeaders,
         "Content-Range": `bytes ${start}-${end}/${fileSize}`,
         "Accept-Ranges": "bytes",
         "Content-Length": chunksize,
@@ -525,6 +729,7 @@ app.get("/api/downloads/:id/stream", validateParam(IdParamSchema), (req, res) =>
       stream.pipe(res);
     } else {
       res.writeHead(200, {
+        ...corsHeaders,
         "Content-Length": fileSize,
         "Accept-Ranges": "bytes",
         "Content-Type": contentType,
@@ -622,9 +827,22 @@ app.post("/api/downloads/:id/enhance", validateParam(IdParamSchema), (req, res) 
 
     let filterChain = "";
     let audioFlags = "-c:a copy";
+    let videoCodec = "-c:v libx264 -preset medium -crf 18";
     let label = "Enhanced";
 
     switch (preset) {
+      case "compress":
+        videoCodec = "-c:v libx264 -preset slow -crf 24";
+        audioFlags = "-c:a aac -b:a 128k";
+        filterChain = "";
+        label = "Smart Compress (Hemat Ukuran ~50%, Visual Asli)";
+        break;
+      case "compress_hevc":
+        videoCodec = "-c:v libx265 -preset medium -crf 28";
+        audioFlags = "-c:a aac -b:a 128k";
+        filterChain = "";
+        label = "Ultra Compress H.265 (Hemat Ukuran ~70%)";
+        break;
       case "sharpen":
         filterChain = '-vf "unsharp=5:5:0.8:5:5:0.0,hqdn3d=1.2:1.2:4:4"';
         label = "HD Sharpened & Denoised";
@@ -650,7 +868,7 @@ app.post("/api/downloads/:id/enhance", validateParam(IdParamSchema), (req, res) 
     }
 
     const tempOut = filePath + `.enhanced-${Date.now()}.mp4`;
-    const cmd = `"${ffmpegBin}" -y -i "${filePath}" ${filterChain} -c:v libx264 -preset medium -crf 18 ${audioFlags} -movflags +faststart "${tempOut}"`;
+    const cmd = `"${ffmpegBin}" -y -i "${filePath}" ${filterChain} ${videoCodec} ${audioFlags} -movflags +faststart "${tempOut}"`;
 
     // Immediately mark as processing and respond to client to avoid HTTP timeout
     task.status = "merging";
@@ -704,14 +922,7 @@ app.post("/api/downloads/:id/enhance", validateParam(IdParamSchema), (req, res) 
 });
 
 // Static downloads dir WITH safeBase path traversal prevention
-let downloadDir: string;
-if (process.env.DOWNLOAD_DIR) {
-  downloadDir = path.resolve(process.env.DOWNLOAD_DIR);
-} else if (IS_VERCEL) {
-  downloadDir = "/tmp/turbodownloader-downloads";
-} else {
-  downloadDir = path.join(process.cwd(), "downloads");
-}
+const downloadDir = getDownloadsDir();
 if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 app.use("/downloads", (req, res, next) => {
   try {

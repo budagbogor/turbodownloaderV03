@@ -13,10 +13,12 @@ import { SettingsPage } from "./components/SettingsPage";
 import { CheatSheet, BatchModal } from "./components/CheatSheetAndBatch";
 import { GlobalDropPaste } from "./components/GlobalDropPaste";
 import { TrashPage } from "./components/TrashPage";
+import { InstallExtensionModal } from "./components/InstallExtensionModal";
 import { useDownloadsWebSocket } from "./hooks/useDownloadsWebSocket";
 import { useTheme } from "./hooks/useTheme";
 import { useShortcuts } from "./hooks/useShortcuts";
-import { Download, Inbox, Layers } from "lucide-react";
+import { Download, Inbox, Layers, FolderOpen } from "lucide-react";
+import { getApiUrl, openDownloadsFolderNative } from "./lib/utils";
 
 export default function App() {
   const [currentCategory, setCurrentCategory] = useState<CategoryType>("all");
@@ -31,6 +33,7 @@ export default function App() {
   const [isCheatSheetOpen, setIsCheatSheetOpen] = useState(false);
   const [isBatchOpen, setIsBatchOpen] = useState(false);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isExtensionModalOpen, setIsExtensionModalOpen] = useState(false);
   const [trashCount, setTrashCount] = useState<number>(0);
   const [initialAddUrl, setInitialAddUrl] = useState<string>("");
   const [inspectingTask, setInspectingTask] = useState<DownloadTask | null>(null);
@@ -370,6 +373,7 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenBatch={() => setIsBatchOpen(true)}
           onOpenCheatSheet={() => setIsCheatSheetOpen(true)}
+          onOpenExtensionModal={() => setIsExtensionModalOpen(true)}
           onResumeAll={handleResumeAll}
           onPauseAll={handlePauseAll}
           onClearCompleted={handleClearCompleted}
@@ -380,6 +384,7 @@ export default function App() {
           hasActiveDownloads={stats.activeCount > 0}
           hasCompletedDownloads={stats.completedCount > 0}
           searchInputRef={searchInputRef}
+          defaultDownloadDir={currentSettings.defaultDownloadDir}
         />
 
         <div className="flex flex-col lg:flex-row gap-6 mt-5">
@@ -416,6 +421,16 @@ export default function App() {
                     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl2 font-semibold text-secondary bg-surface border border-muted hover:bg-subtle transition-all hover:-translate-y-0.5 surface-card !shadow-none"
                   >
                     Sniff Media Link
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDownloadsFolderNative(currentSettings.defaultDownloadDir);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl2 font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all hover:-translate-y-0.5 cursor-pointer shadow-xs"
+                    title="Buka Folder Downloads di File Explorer"
+                  >
+                    <FolderOpen className="w-4 h-4 text-amber-600" />
+                    Buka Folder Unduhan
                   </button>
                   <button
                     onClick={() => setIsBatchOpen(true)}
@@ -511,6 +526,11 @@ export default function App() {
         onRestore={restoreTrash}
         onForeverDelete={foreverDeleteTrash}
         retentionDays={currentSettings.trashRetentionDays}
+      />
+
+      <InstallExtensionModal
+        isOpen={isExtensionModalOpen}
+        onClose={() => setIsExtensionModalOpen(false)}
       />
     </div>
   );

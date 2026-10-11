@@ -16,6 +16,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(() => sendResponse({ online: false }));
     return true;
   }
+
+  if (request.action === "OPEN_FOLDER") {
+    fetch(`${TURBO_SERVER}/api/downloads/open-folder`, { method: "POST" })
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
 
 async function checkServerStatus() {
@@ -31,7 +38,7 @@ async function sendDownloadToServer(url, filename = "") {
   const res = await fetch(`${TURBO_SERVER}/api/downloads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, filename }),
+    body: JSON.stringify({ url, filename, autoCompress: true, openFolder: true }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Server HTTP error " + res.status }));

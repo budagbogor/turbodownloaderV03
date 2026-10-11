@@ -52,3 +52,89 @@ export function uuid4(): string {
     return v.toString(16);
   });
 }
+
+export function getApiUrl(path: string): string {
+  if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const isTauri =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "tauri.localhost" ||
+      Boolean((window as any).__TAURI_INTERNALS__) ||
+      Boolean((window as any).__TAURI__) ||
+      window.location.protocol === "tauri:" ||
+      window.location.protocol === "asset:");
+  if (isTauri) {
+    return `http://127.0.0.1:3000${path.startsWith("/") ? path : "/" + path}`;
+  }
+  return path;
+}
+
+export async function openDownloadsFolderNative(customPath?: string) {
+  // 1. Coba lewat Tauri Invoke jika berjalan di desktop
+  try {
+    const tauri = (window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__;
+    if (tauri && typeof tauri.invoke === "function") {
+      await tauri.invoke("open_downloads_folder", { path: customPath || null });
+      return;
+    }
+  } catch (e) {
+    console.warn("Tauri invoke open_downloads_folder failed, falling back to API:", e);
+  }
+
+  // 2. Fallback ke endpoint backend HTTP
+  try {
+    await fetch(getApiUrl("/api/downloads/open-folder"), { method: "POST" });
+  } catch (e) {
+    console.error("Failed to open folder via API:", e);
+  }
+}
+
+export async function openFileInFolderNative(taskId: string, filepath?: string) {
+  // 1. Coba lewat Tauri Invoke jika ada filepath
+  try {
+    const tauri = (window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__;
+    if (tauri && typeof tauri.invoke === "function" && filepath) {
+      await tauri.invoke("open_file_in_folder", { filepath });
+      return;
+    }
+  } catch (e) {
+    console.warn("Tauri invoke open_file_in_folder failed, falling back to API:", e);
+  }
+
+  // 2. Fallback ke endpoint backend HTTP
+  try {
+    await fetch(getApiUrl(`/api/downloads/${taskId}/open-folder`), { method: "POST" });
+  } catch (e) {
+    console.error("Failed to open task folder via API:", e);
+  }
+}
+
+export async function pickFolderNative(): Promise<string | null> {
+  // 1. Coba lewat Tauri Invoke dialog
+  try {
+    const tauri = (window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__;
+    if (tauri && typeof tauri.invoke === "function") {
+      const selected = await tauri.invoke("pick_folder");
+      if (selected && typeof selected === "string") {
+        return selected;
+      }
+      return null;
+    }
+  } catch (e) {
+    console.warn("Tauri invoke pick_folder failed, falling back to API:", e);
+  }
+
+  // 2. Fallback ke API backend
+  try {
+    const res = await fetch(getApiUrl("/api/settings/choose-folder"), { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.folder) {
+        return data.folder;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to pick folder via API:", e);
+  }
+  return null;
+}

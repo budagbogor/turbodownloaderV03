@@ -10,7 +10,10 @@ import {
   Compass,
   Settings as SettingsIcon,
   Layers,
+  FolderOpen,
+  Puzzle,
 } from "lucide-react";
+import { getApiUrl, openDownloadsFolderNative } from "../lib/utils";
 
 interface ToolbarProps {
   onOpenAddModal: () => void;
@@ -19,6 +22,7 @@ interface ToolbarProps {
   onOpenSettings: () => void;
   onOpenBatch: () => void;
   onOpenCheatSheet: () => void;
+  onOpenExtensionModal?: () => void;
   onResumeAll: () => void;
   onPauseAll: () => void;
   onClearCompleted: () => void;
@@ -29,6 +33,7 @@ interface ToolbarProps {
   hasActiveDownloads: boolean;
   hasCompletedDownloads: boolean;
   searchInputRef?: React.RefObject<HTMLInputElement | null>;
+  defaultDownloadDir?: string;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -41,6 +46,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onResumeAll,
   onPauseAll,
   onClearCompleted,
+  onOpenExtensionModal,
   searchQuery,
   onSearchChange,
   sortBy,
@@ -48,6 +54,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   hasActiveDownloads,
   hasCompletedDownloads,
   searchInputRef,
+  defaultDownloadDir,
 }) => {
   return (
     <div className="bg-white border border-slate-200/90 rounded-2xl p-4 mb-6 shadow-sm">
@@ -98,6 +105,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Compass className="w-4 h-4 text-slate-500" />
             <span>?</span>
           </button>
+
+          <button
+            onClick={() => {
+              openDownloadsFolderNative(defaultDownloadDir);
+            }}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-300 font-medium px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+            title="Buka Folder Downloads di File Explorer"
+            aria-label="Buka folder download"
+          >
+            <FolderOpen className="w-4 h-4 text-amber-600" />
+            <span className="hidden sm:inline">Buka Folder</span>
+          </button>
+
+          {onOpenExtensionModal && (
+            <button
+              onClick={onOpenExtensionModal}
+              className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 hover:border-teal-300 font-medium px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+              title="Pasang Ekstensi Browser Chrome/Edge (1-Klik)"
+              aria-label="Pasang ekstensi browser"
+            >
+              <Puzzle className="w-4 h-4 text-teal-600" />
+              <span className="hidden sm:inline">Ekstensi Chrome</span>
+            </button>
+          )}
 
           <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
             <button

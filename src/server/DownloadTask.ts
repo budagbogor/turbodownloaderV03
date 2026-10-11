@@ -13,6 +13,7 @@ import {
 } from "./task-types.js";
 import {
   detectSocialPlatforms,
+  cleanYouTubeUrl,
   extractFacebook,
   extractTikTok,
   extractYouTubePreInfo,
@@ -42,6 +43,7 @@ import {
   startYoutubeDlDownload,
   YtDlHandlerCtx,
 } from "./youtube-dl-handler.js";
+import { getActiveDownloadDir } from "./database.js";
 
 export class DownloadTask {
   public id: string;
@@ -55,6 +57,7 @@ export class DownloadTask {
   public isSocialMedia: boolean = false;
   public createdAt: number = Date.now();
   public numConnections: number = 8;
+  public autoCompress: boolean = false;
 
   private segments: Segment[] = [];
   private tempDir: string;
@@ -82,7 +85,7 @@ export class DownloadTask {
     this.filename = this.sanitizeFilename(filename || `download_${this.id.substring(0, 8)}`);
     this.numConnections = Math.max(1, Math.min(32, connections || 8));
 
-    this.outputDir = path.join(process.cwd(), "downloads");
+    this.outputDir = getActiveDownloadDir();
     this.tempDir = path.join(os.tmpdir(), "turbodownloader_temp", this.id);
 
     try {
@@ -94,16 +97,19 @@ export class DownloadTask {
   }
 
   private sanitizeFilename(name: string): string {
-    let clean = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+    // Bersihkan emoji dan karakter surrogate yang sering membuat Windows Media Player lag saat membaca metadata file
+    let clean = name.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, "");
+    clean = clean.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+    clean = clean.replace(/\.{2,}/g, ".");
     clean = clean.replace(/^[.\s]+|[.\s]+$/g, "");
     return clean || `download_${Date.now()}`;
   }
 
   private normalizeUrl(inputUrl: string): string {
-    const trimmed = inputUrl.trim();
+    let trimmed = inputUrl.trim();
     if (trimmed.startsWith("/")) return `http://127.0.0.1:3000${trimmed}`;
-    if (!/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
-    return trimmed;
+    if (!/^https?:\/\//i.test(trimmed)) trimmed = `https://${trimmed}`;
+    return cleanYouTubeUrl(trimmed);
   }
 
   async initialize(): Promise<void> {

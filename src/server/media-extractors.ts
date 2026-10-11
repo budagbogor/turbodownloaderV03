@@ -115,16 +115,37 @@ export interface YouTubeExtractionResult {
   normalizedUrl: string;
 }
 
-export async function extractYouTubePreInfo(opts: MediaExtractorOptions): Promise<YouTubeExtractionResult> {
-  const { taskId, url, sanitizeFilename, currentFilename } = opts;
-  let normalizedUrl = url;
+export function cleanYouTubeUrl(url: string): string {
+  let normalizedUrl = url.trim();
   if (normalizedUrl.includes("/shorts/")) {
     const vid = normalizedUrl.split("/shorts/")[1]?.split("/")[0]?.split("?")[0];
-    if (vid) normalizedUrl = `https://www.youtube.com/watch?v=${vid}`;
+    if (vid) return `https://www.youtube.com/watch?v=${vid}`;
   } else if (normalizedUrl.includes("youtu.be/")) {
     const vid = normalizedUrl.split("youtu.be/")[1]?.split("?")[0];
-    if (vid) normalizedUrl = `https://www.youtube.com/watch?v=${vid}`;
+    if (vid) return `https://www.youtube.com/watch?v=${vid}`;
   }
+  try {
+    const parsed = new URL(normalizedUrl);
+    if (parsed.hostname.includes("youtube.com")) {
+      const v = parsed.searchParams.get("v");
+      if (v) {
+        return `https://www.youtube.com/watch?v=${v}`;
+      }
+    }
+  } catch {}
+  return normalizedUrl;
+}
+
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+};
+
+export async function extractYouTubePreInfo(opts: MediaExtractorOptions): Promise<YouTubeExtractionResult> {
+  const { taskId, url, sanitizeFilename, currentFilename } = opts;
+  const normalizedUrl = cleanYouTubeUrl(url);
 
   let downloadUrl = "";
   let filename = currentFilename;
@@ -132,22 +153,24 @@ export async function extractYouTubePreInfo(opts: MediaExtractorOptions): Promis
   let ytEstimate = 0;
 
   try {
-    const info = await play.video_info(normalizedUrl);
-    const videoFormats = info.format.filter((f) => f.qualityLabel && f.audioQuality);
-    const chosen = videoFormats[0] || info.format.find((f) => f.url);
-    debugReport("A", "src/server/media-extractors.ts:extractYouTubePreInfo", "[DEBUG] play-dl returned YouTube formats", {
-      taskId,
-      normalizedUrl,
-      formatCount: info.format.length,
-      chosenHasUrl: Boolean(chosen?.url),
-      chosenQuality: chosen?.qualityLabel || null,
-      chosenMimeType: chosen?.mimeType || null,
-    });
-    if (info.video_details?.title) ytTitle = info.video_details.title;
-    if (chosen && chosen.url) {
-      downloadUrl = chosen.url;
-      if (info.video_details.durationInSec && chosen.bitrate) {
-        ytEstimate = Math.floor((chosen.bitrate * info.video_details.durationInSec) / 8);
+    const info = await withTimeout(play.video_info(normalizedUrl), 5000, null as any);
+    if (info && info.format) {
+      const videoFormats = info.format.filter((f) => f.qualityLabel && f.audioQuality);
+      const chosen = videoFormats[0] || info.format.find((f) => f.url);
+      debugReport("A", "src/server/media-extractors.ts:extractYouTubePreInfo", "[DEBUG] play-dl returned YouTube formats", {
+        taskId,
+        normalizedUrl,
+        formatCount: info.format.length,
+        chosenHasUrl: Boolean(chosen?.url),
+        chosenQuality: chosen?.qualityLabel || null,
+        chosenMimeType: chosen?.mimeType || null,
+      });
+      if (info.video_details?.title) ytTitle = info.video_details.title;
+      if (chosen && chosen.url) {
+        downloadUrl = chosen.url;
+        if (info.video_details?.durationInSec && chosen.bitrate) {
+          ytEstimate = Math.floor((chosen.bitrate * info.video_details.durationInSec) / 8);
+        }
       }
     }
   } catch (ytErr: any) {
@@ -162,14 +185,16 @@ export async function extractYouTubePreInfo(opts: MediaExtractorOptions): Promis
   }
 
   try {
-    const ytInfo: any = await youtubedl(normalizedUrl, {
+    const ytPromise = youtubedl(normalizedUrl, {
       dumpSingleJson: true,
+      noPlaylist: true,
       noCheckCertificates: true,
       noWarnings: true,
       preferFreeFormats: true,
       format: "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-      addHeader: ["referer:google.com", `user-agent:${DEFAULT_USER_AGENT}`],
+      addHeader: ["referer:https://www.youtube.com/", `user-agent:${DEFAULT_USER_AGENT}`],
     });
+    const ytInfo: any = await withTimeout(ytPromise, 6000, null);
     if (ytInfo) {
       if (!ytTitle && ytInfo.title) ytTitle = ytInfo.title;
       let combinedSize = 0;
@@ -224,13 +249,18 @@ export async function socialMediaYtDlFallback(
   if (!isSocialMedia) return { downloadUrl, filename, totalSize, extractorFailed };
 
   try {
-    const info: any = await youtubedl(url, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      addHeader: ["referer:google.com", `user-agent:${DEFAULT_USER_AGENT}`],
-    });
+    const info: any = await withTimeout(
+      youtubedl(url, {
+        dumpSingleJson: true,
+        noPlaylist: true,
+        noCheckCertificates: true,
+        noWarnings: true,
+        preferFreeFormats: true,
+        addHeader: ["referer:https://www.google.com", `user-agent:${DEFAULT_USER_AGENT}`],
+      }),
+      7000,
+      null
+    );
 
     if (info && info.url) {
       downloadUrl = info.url;

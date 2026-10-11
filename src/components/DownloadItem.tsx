@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { DownloadTask } from "../types";
-import { formatBytes, formatTime } from "../lib/utils";
+import { formatBytes, formatTime, getApiUrl, openFileInFolderNative } from "../lib/utils";
 import { SegmentVisualizer } from "./SegmentVisualizer";
 import {
   Play,
@@ -17,6 +17,7 @@ import {
   FileQuestion,
   Cpu,
   Download,
+  FolderOpen,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -192,17 +193,7 @@ export const DownloadItem: React.FC<DownloadItemProps> = ({
               </button>
             )}
 
-            {task.status === "completed" && (
-              <a
-                href={`/api/downloads/${task.id}/file`}
-                download={task.filename}
-                className="px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/90 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-2xs cursor-pointer"
-                title="Save file directly to device"
-              >
-                <Download className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span className="hidden sm:inline">Save</span>
-              </a>
-            )}
+
 
             {(task.status === "downloading" || task.status === "pending") && (
               <button

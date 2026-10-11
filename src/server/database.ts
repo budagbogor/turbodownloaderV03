@@ -259,3 +259,16 @@ export function exportAllJson(): string {
 export function vacuumAndWipeAll() {
   db.exec("DELETE FROM event_log; DELETE FROM tasks; DELETE FROM settings; VACUUM;");
 }
+
+export function getActiveDownloadDir(): string {
+  try {
+    const custom = getSetting("defaultDownloadDir");
+    if (custom && typeof custom === "string" && custom.trim()) {
+      return path.resolve(custom.trim());
+    }
+  } catch {}
+  if (process.env.DOWNLOAD_DIR) {
+    return path.resolve(process.env.DOWNLOAD_DIR);
+  }
+  return path.join(process.cwd(), "downloads");
+}

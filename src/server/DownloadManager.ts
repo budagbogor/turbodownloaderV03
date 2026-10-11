@@ -17,6 +17,7 @@ import {
   setSetting,
   getSetting,
   DEFAULT_SETTINGS,
+  getActiveDownloadDir,
   TaskRow,
 } from "./database.js";
 
@@ -55,14 +56,29 @@ class DownloadManager {
         }
       }
 
-      const downloadDir = path.join(process.cwd(), "downloads");
+      const downloadDir = getActiveDownloadDir();
       if (!fs.existsSync(downloadDir)) {
         fs.mkdirSync(downloadDir, { recursive: true });
       } else {
         const files = fs.readdirSync(downloadDir);
         for (const file of files) {
           if (file.startsWith(".")) continue;
-          if (restoredFromDb.has(file)) continue;
+          if (restoredFromDb.has(file)) {
+            const existingTask = Array.from(this.tasks.values()).find((t) => t.filename === file);
+            if (existingTask && existingTask.status !== "completed") {
+              const filePath = path.join(downloadDir, file);
+              try {
+                const stat = fs.statSync(filePath);
+                if (stat.isFile() && stat.size > 0) {
+                  existingTask.status = "completed";
+                  existingTask.totalSize = stat.size;
+                  existingTask.downloadedSize = stat.size;
+                  this.markDirty(existingTask.id);
+                }
+              } catch (_) {}
+            }
+            continue;
+          }
           const filePath = path.join(downloadDir, file);
           try {
             const stat = fs.statSync(filePath);
@@ -123,13 +139,14 @@ class DownloadManager {
     this.dirtyIds.clear();
   }
 
-  async addDownload(url: string, filename?: string, connections?: number): Promise<any> {
+  async addDownload(url: string, filename?: string, connections?: number, autoCompress?: boolean): Promise<any> {
     const maxConcurrent = getSetting("maxConcurrentDownloads") || DEFAULT_SETTINGS.maxConcurrentDownloads;
     const activeCount = Array.from(this.tasks.values()).filter(
       (t) => t.status === "downloading" || t.status === "merging"
     ).length;
 
     const task = new DownloadTask(url, filename, connections);
+    if (autoCompress) task.autoCompress = true;
     await task.initialize();
     this.tasks.set(task.id, task);
 
@@ -328,7 +345,7 @@ class DownloadManager {
       this.tasks.delete(id);
       softDeleteTask(id);
 
-      const filePath = path.join(process.cwd(), "downloads", task.filename);
+      const filePath = path.join(getActiveDownloadDir(), task.filename);
       if (fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);

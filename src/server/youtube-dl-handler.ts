@@ -5,7 +5,7 @@ const youtubedl = (youtubedlPkg as any).default || youtubedlPkg;
 
 import { DEFAULT_USER_AGENT, Segment, dbgReport } from "./task-types.js";
 import { getFfmpegBinary, optimizeVideoForCompatibility, ensureExecutable } from "./ffmpeg-toolchain.js";
-import type { YtDlTrackState } from "./media-extractors.js";
+import { type YtDlTrackState, cleanYouTubeUrl } from "./media-extractors.js";
 import { getAllSettings } from "./database.js";
 
 const IS_VERCEL = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
@@ -111,8 +111,10 @@ export async function startYoutubeDlDownload(ctx: YtDlHandlerCtx): Promise<void>
     const formatSelector = ffmpegAvailable
       ? "bestvideo*+bestaudio/best/bestvideo+bestaudio[ext=m4a]/bestvideo*+bestaudio[ext=m4a]/best"
       : "best";
+    const cleanedYtUrl = cleanYouTubeUrl(ytUrl);
     const ytArgs = [
-      ytUrl,
+      cleanedYtUrl,
+      "--no-playlist",
       "-S", sortSelector,
       // If ffmpeg is missing, force a single progressive audio+video stream to avoid audio-only leftovers.
       "-f", formatSelector,
@@ -121,7 +123,8 @@ export async function startYoutubeDlDownload(ctx: YtDlHandlerCtx): Promise<void>
       "--no-warnings",
       "--no-check-certificates",
       ...cookieArg,
-      "--extractor-args", "youtube:player_clients=android,web,ios,mweb,web_embedded,tv_downgraded",
+      "--extractor-args", "youtube:player_client=android,web",
+      "--force-ipv4",
       "--js-runtimes", "node",
       "--no-quiet",
       "-o", tempOutTemplate,
@@ -130,8 +133,6 @@ export async function startYoutubeDlDownload(ctx: YtDlHandlerCtx): Promise<void>
       "--add-header", "Referer:https://www.youtube.com/",
       "--add-header", `User-Agent:${DEFAULT_USER_AGENT}`,
       "--add-header", "Accept-Language:en-US,en;q=0.9,id;q=0.8",
-      "--add-header", "Sec-Fetch-Dest:document",
-      "--add-header", "Origin:https://www.youtube.com",
     ];
 
     // #region debug-point B:yt-args

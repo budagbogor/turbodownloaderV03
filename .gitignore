@@ -11,3 +11,6 @@ downloads/
 *.sqlite-wal
 *.sqlite-shm
 data/
+target/
+src-tauri/target/
+.vercel/

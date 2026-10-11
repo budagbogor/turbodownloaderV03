@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { X, Save, Bell, FolderOpen, Radio, Wifi, Eye, Trash2, Palette, Network, Sliders } from "lucide-react";
 import { AppSettings } from "../types";
+import { pickFolderNative } from "../lib/utils";
 
 interface SettingsPageProps {
   isOpen: boolean;
@@ -34,13 +35,16 @@ const BoolToggle: React.FC<{
     <button
       type="button"
       onClick={() => onChange(value ? 0 : 1)}
-      className={`relative inline-flex h-6.5 w-[2.75rem] items-center rounded-full transition-colors shrink-0 ring-1 ring-inset ${
-        value ? "bg-brand-600 ring-brand-700/30 shadow-ring" : "bg-ink-200 ring-ink-300/60"
+      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 border cursor-pointer ${
+        value
+          ? "bg-blue-600 border-blue-700 shadow-sm"
+          : "bg-slate-200 border-slate-300 hover:bg-slate-300"
       }`}
+      aria-pressed={Boolean(value)}
     >
       <span
-        className={`inline-block h-[1.15rem] w-[1.15rem] transform rounded-full bg-white shadow-md transition-transform ${
-          value ? "translate-x-[1.35rem]" : "translate-x-1"
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+          value ? "translate-x-6" : "translate-x-1"
         }`}
       />
     </button>
@@ -126,6 +130,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ isOpen, initialSetti
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isPickingFolder, setIsPickingFolder] = useState(false);
+
+  const handleChooseFolder = async () => {
+    setIsPickingFolder(true);
+    try {
+      const folder = await pickFolderNative();
+      if (folder) {
+        patch("defaultDownloadDir", folder);
+      }
+    } catch (e) {
+      console.error("Choose folder error:", e);
+    } finally {
+      setIsPickingFolder(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -221,13 +240,35 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ isOpen, initialSetti
             {tab === "general" && (
               <div>
                 <div className="text-[11px] font-bold tracking-[0.16em] text-muted uppercase mb-4">General</div>
-                <TextInput
-                  value={settings.defaultDownloadDir}
-                  onChange={(v) => patch("defaultDownloadDir", v)}
-                  label="Download Directory"
-                  description="Folder lokasi file disimpan. Bisa menggunakan path relatif (./downloads) atau absolute (C:/Users/name/Downloads)."
-                  placeholder="./downloads"
-                />
+                <div className="py-3.5 border-b border-subtle">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-bold text-on-surface tracking-tight">
+                      Download Directory
+                    </label>
+                  </div>
+                  <div className="text-xs text-muted mb-2.5 leading-relaxed">
+                    Folder lokasi file hasil unduhan disimpan. Anda bisa langsung memilih folder lewat File Explorer atau mengetik path folder sendiri.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={settings.defaultDownloadDir}
+                      placeholder="./downloads"
+                      onChange={(e) => patch("defaultDownloadDir", e.target.value)}
+                      className="flex-1 px-3.5 py-2.5 text-sm rounded-xl2 border border-muted bg-surface text-on-surface focus:outline-none shadow-ring focus:border-brand-400 transition-colors font-medium font-mono text-xs sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleChooseFolder}
+                      disabled={isPickingFolder}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl2 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
+                      title="Buka File Explorer untuk memilih folder"
+                    >
+                      <FolderOpen className="w-4 h-4 text-brand-600" />
+                      <span>{isPickingFolder ? "Memilih..." : "Pilih Folder"}</span>
+                    </button>
+                  </div>
+                </div>
                 <NumberSlider
                   value={settings.trashRetentionDays}
                   min={1}

@@ -71,21 +71,37 @@
       btn.classList.add("loading");
       btn.querySelector("span").textContent = "Mengirim...";
 
-      chrome.runtime.sendMessage(
-        { action: "START_DOWNLOAD", url: targetUrl, filename: "" },
-        (response) => {
-          btn.disabled = false;
-          btn.classList.remove("loading");
-          btn.querySelector("span").textContent = "Download Video";
+      try {
+        chrome.runtime.sendMessage(
+          { action: "START_DOWNLOAD", url: targetUrl, filename: "" },
+          (response) => {
+            btn.disabled = false;
+            btn.classList.remove("loading");
+            btn.querySelector("span").textContent = "Download Video";
 
-          if (response && response.success) {
-            showToast("Video berhasil dikirim ke TurboDownloader! 🚀", true);
-          } else {
-            const errStr = response ? response.error : "TurboDownloader Server Offline (Pastikan app berjalan di localhost:3000)";
-            showToast(errStr, false);
+            if (chrome.runtime.lastError) {
+              console.warn("TurboDownloader extension error:", chrome.runtime.lastError);
+              showToast("Error: " + chrome.runtime.lastError.message + " (Coba refresh halaman)", false);
+            } else if (response && response.success) {
+              showToast("Video dikirim ke TurboDownloader & folder unduhan dibuka! 🚀", true);
+            } else {
+              const errStr = response ? response.error : "TurboDownloader Server Offline (Pastikan app berjalan di localhost:3000)";
+              showToast(errStr, false);
+            }
           }
+        );
+      } catch (err) {
+        btn.disabled = false;
+        btn.classList.remove("loading");
+        btn.querySelector("span").textContent = "Download Video";
+        
+        console.error("TurboDownloader message error:", err);
+        if (err.message && err.message.includes("Extension context invalidated")) {
+          showToast("Ekstensi telah diupdate, mohon refresh (F5) halaman ini.", false);
+        } else {
+          showToast("Gagal mengirim pesan ke ekstensi.", false);
         }
-      );
+      }
     });
 
     container.appendChild(btnWrapper);
